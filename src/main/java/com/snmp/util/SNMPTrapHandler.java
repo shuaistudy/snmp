@@ -1,6 +1,6 @@
 package com.snmp.util;
 
-import com.sun.org.apache.xml.internal.resolver.readers.TR9401CatalogReader;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.snmp4j.*;
@@ -26,12 +26,10 @@ public class SNMPTrapHandler implements CommandResponder {
 
     private final static Logger log =  LoggerFactory.getLogger(SNMPTrapHandler.class);
 
-    private static TransportMapping<UdpAddress> transport = null;
     private MultiThreadedMessageDispatcher dispatcher;
     private Snmp snmp = null;
     private Address listenAddress;
     private ThreadPool threadPool;
-
     private int version;
     private String host;
     private int port;
@@ -74,7 +72,7 @@ public class SNMPTrapHandler implements CommandResponder {
                     new OctetString(MPv3.createLocalEngineID()), 0);
             usm.setEngineDiscoveryEnabled(true);
             SecurityModels.getInstance().addSecurityModel(usm);
-
+            //TODO 添加服务器上管理的V3用户，暂时只添加一个snmpuser测试用户
             snmp.getUSM().addUser(
                     new OctetString("snmpuser"),
                     new UsmUser(new OctetString("snmpuser"), AuthMD5.ID,

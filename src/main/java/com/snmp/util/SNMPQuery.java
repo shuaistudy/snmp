@@ -1,5 +1,6 @@
 package com.snmp.util;
 
+import com.alibaba.fastjson.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.snmp4j.*;
@@ -23,9 +24,7 @@ import java.util.*;
  *  3.getBulk-request 操作: 会根据最大重试值执行一个连续的getNext操作,该操作常用于查询数据量较大的场景,提高效率
  *  4.set-request 操作: 设置代理进程的一个或多个参数值
  *  5.get-response 操作: 这个操作是由代理进程发出的,它是上述四种操作的响应
- *  6.inform-request 操作:
- *  7.report 操作:
- *  8.trap 操作: 代理进程主动发出的报文,通知管理进程有某些事情发生
+ *  6.trap 操作: 代理进程主动发出的报文,通知管理进程有某些事情发生
  *
  */
 public class SNMPQuery {
@@ -33,9 +32,8 @@ public class SNMPQuery {
     private final static Logger log =  LoggerFactory.getLogger(SNMPTrapHandler.class);
     private static final String ROOT = "WALK";
 
-    private static Map<String,String> datas;
+    private static JSONObject datas = new JSONObject();
     private static Snmp snmp = null;
-
     private static String host;
     private static int port;
     private static int version;
@@ -51,7 +49,7 @@ public class SNMPQuery {
     private static OID priProtocolBean;
     private  OID authProtocolBean;
 
-  //  public SNMPQuery(String host) { this(host, 161); }
+    public SNMPQuery(String host) { this(host, 161); }
 
     public SNMPQuery(String host, int port) {
         this(host, port, SnmpConstants.version2c);
@@ -85,7 +83,6 @@ public class SNMPQuery {
     }
 
     public  void createTarget(String host, int port, int version, String community) {
-        //Address targetAddress = GenericAddress.parse("udp:"+bindHost+"/"+bindPort);
         Address targetAddress = new UdpAddress(host + "/" + port);
 
         if (version == SnmpConstants.version3) {
@@ -162,31 +159,13 @@ public class SNMPQuery {
         return pdu;
     }
 
-    private  class MyDefaultPDUFactory extends DefaultPDUFactory {
-        private OctetString contextEngineId = null;
-
-        public MyDefaultPDUFactory(int pduType, OctetString contextEngineId) {
-            super(pduType);
-            this.contextEngineId = contextEngineId;
-        }
-
-        @Override
-        public PDU createPDU(Target target) {
-            PDU pdu = super.createPDU(target);
-            if (target.getVersion() == SnmpConstants.version3) {
-                ((ScopedPDU)pdu).setContextEngineID(contextEngineId);
-            }
-            return pdu;
-        }
+    public JSONObject snmpGet(String oid) throws Exception {
+        return snmpGet(Arrays.asList(oid));
     }
 
-    public  void snmpGet(String oid) throws Exception {
-        snmpGet(Arrays.asList(oid));
-    }
+    public  JSONObject snmpGet(List<String> oids) throws Exception {
 
-    public  void snmpGet(List<String> oids) throws Exception {
-
-        Map<String, String> datas = new HashMap<String, String>();
+        JSONObject data = new JSONObject();
         PDU pdu = createPDU(PDU.GET);
         for (String oid : oids) {
             if (oid.endsWith(".0")) {
@@ -199,27 +178,27 @@ public class SNMPQuery {
         ResponseEvent respEvent = snmp.get(pdu, target);
         PDU response = respEvent.getResponse();
         //解析response
-        if(respEvent != null && response != null){
-//            if (response.getErrorIndex() == PDU.noError && response.getErrorStatus() == PDU.noError) {
+            if (response.getErrorIndex() == PDU.noError && response.getErrorStatus() == PDU.noError) {
                 Vector<? extends VariableBinding> vector = response.getVariableBindings();
                 for (VariableBinding vb : vector) {
                     String key = vb.getOid().toString();
-                    datas.put(key, vb.getVariable().toString());
+                    data.put(key,vb.getVariable().toString());
                 }
-//            } else {
-//                throw new Exception("Error:{} " + response.getErrorStatusText());
-//            }
-        }
+            } else {
+                throw new Exception("Error:{} " + response.getErrorStatusText());
+            }
 
-        log.info("Snmp get-request operation and the data is : " + datas);
+        log.info("Snmp get-request operation and the data is : " + data);
+        //关闭连接
+        destory();
+        return data;
     }
 
 
-    public  void snmpWalk(OID oid, String type) throws Exception {
+    public  JSONObject snmpWalk(OID oid, String type) throws Exception {
         if (type.equals(SNMPQuery.ROOT)) {
             type = oid.toString();
         }
-        datas=new HashMap<String, String>();
         PDU pdu = createPDU(PDU.GETNEXT);
         pdu.add(new VariableBinding(oid));
         ResponseEvent rspEvt = snmp.send(pdu, target);
@@ -238,6 +217,8 @@ public class SNMPQuery {
         } else {
             throw new Exception("Error message:{} " + response.getErrorStatusText());
         }
+        destory();
+        return datas;
     }
 
     public  void snmpSet(OID oid, Variable newVar) throws Exception {
@@ -256,28 +237,6 @@ public class SNMPQuery {
         } else {
             throw new Exception("Error info :{} " + response.getErrorStatusText());
         }
-    }
-
-    public  ResponseEvent sendSnmpTrap(String oid) throws IOException {
-        return sendSnmpTrap(Arrays.asList(oid));
-    }
-
-    //support snmp v1|v2c|v3
-    public  ResponseEvent sendSnmpTrap(List<String> oids) throws IOException {
-        PDU pdu ;
-        if(version==SnmpConstants.version1){
-            pdu=createPDU(PDU.V1TRAP);
-        } else{
-            pdu=createPDU(PDU.TRAP);
-        }
-        for (String oid : oids) {
-            if (oid.endsWith(".0")) {
-                pdu.add(new VariableBinding(new OID(oid),new OctetString("SNMP Trap Test.")));
-            } else {
-                throw new IllegalArgumentException(oid + ": 为MIB中非叶子节点，请检查！");
-            }
-        }
-        return snmp.set(pdu,target);
     }
 
     public  void snmpGetResponse(Boolean syn, final Boolean bro, String oid) throws IOException {
@@ -327,5 +286,25 @@ public class SNMPQuery {
             }
         }
     }
+/*    public static void main(String[] args) {
+        //Snmp query
+        SNMPQuery snmpQuery = new SNMPQuery("172.16.1.36",161, SnmpConstants.version3,"public");
+        //get-request
+        try{
+            //sysContact
+            // SNMPQuery.snmpGet("1.3.6.1.2.1.1.5.0");
+            //getBulk-request
+            //SNMPQuery.snmpGetBulk("1.3.6.1.2.1.1");
+            //set-request
+            //SNMPQuery.snmpSet(new OID("1.3.6.1.2.1.1.4.0"), new VariantVariable());
+            //getNext-request
+            snmpQuery.snmpWalk(new OID("1.3.6.1.2.1.25.1"), "WALK");//IfDescr
+            //get-response
+            //SNMPQuery.snmpGetResponse(false, true, "1.3.6.1.2.1.1.4.0");//sysContact
 
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+
+    }*/
 }
